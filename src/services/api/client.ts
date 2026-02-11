@@ -3,7 +3,7 @@ import { store } from '../../store/store';
 import { clearAuth } from '../../store/slices/authSlice';
 
 const apiClient = axios.create({
-    baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5000/api',
+    baseURL: import.meta.env.VITE_API_URL || 'https://valentine-backend-15oz.onrender.com/api',
     timeout: 10000,
     headers: {
         'Content-Type': 'application/json',
