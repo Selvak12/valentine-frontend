@@ -1,0 +1,8 @@
+
+{
+  "name": "Val-Admin & Valentine Experience",
+  "description": "Full-stack Valentine's management system featuring React.js, Express.js, MongoDB, Nodemailer, Gemini AI content generation, memory carousels, and high-fidelity celebration effects.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
