@@ -19,7 +19,7 @@ import {
   Play,
   Sun
 } from 'lucide-react';
-import type { Recipient } from './types';
+import type { Invitation } from './types/invitation';
 import { invitationService } from './services/api/invitationService';
 import { trackingService } from './services/api/trackingService'; // Import trackingService
 import SendInvitation from './Sendinvitation';
@@ -192,12 +192,10 @@ const ConfettiBurst: React.FC = () => (
 
 const ExperienceView: React.FC = () => {
   const { id } = useParams();
-  const [inv, setInv] = useState<Recipient | null>(null);
+  const [inv, setInv] = useState<Invitation | null>(null);
   const [stage, setStage] = useState<'envelope' | 'ask' | 'accepted' | 'surprise_ready' | 'surprise_reveal'>('envelope');
-  const [typedMessage, setTypedMessage] = useState('');
   const [carouselIndex, setCarouselIndex] = useState(0);
   const [noPos, setNoPos] = useState({ x: 0, y: 0 });
-  const [noSize, setNoSize] = useState(1);
   const [noCount, setNoCount] = useState(0);
   const [showSurprisePrompt, setShowSurprisePrompt] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -222,15 +220,7 @@ const ExperienceView: React.FC = () => {
   }, [id]);
 
   useEffect(() => {
-    if (stage === 'ask' && inv?.message) {
-      let i = 0;
-      const timer = setInterval(() => {
-        setTypedMessage(inv.message!.slice(0, i));
-        i++;
-        if (i > inv.message!.length) clearInterval(timer);
-      }, 50);
-      return () => clearInterval(timer);
-    }
+    // Typing message effect removed as it was using unused typedMessage
   }, [stage, inv]);
 
   useEffect(() => {
@@ -275,7 +265,6 @@ const ExperienceView: React.FC = () => {
     const y = Math.random() * (window.innerHeight - 100);
 
     setNoPos({ x, y });
-    setNoSize(s => Math.max(0.6, s - 0.05));
   };
 
   const getNoButtonText = () => {
@@ -472,7 +461,7 @@ const ExperienceView: React.FC = () => {
               <div className="mt-12 flex items-center justify-center gap-6">
                 <div className="bg-white/80 backdrop-blur-md px-8 py-4 rounded-full shadow-xl flex items-center gap-4 border border-rose-50">
                   <div className="h-3 w-3 rounded-full bg-rose-500 animate-pulse"></div>
-                  <span className="text-sm font-bold text-slate-600 tracking-tight">Playing: {inv.name}'s Favorite Song.mp3</span>
+                  <span className="text-sm font-bold text-slate-600 tracking-tight">Playing: {inv.recipientName}'s Favorite Song.mp3</span>
                   <Music size={18} className="text-rose-400 animate-spin-slow" />
                 </div>
                 <button

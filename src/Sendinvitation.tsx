@@ -12,7 +12,6 @@ import {
     X,
     Plus
 } from 'lucide-react';
-import type { InvitationData } from './types/invitation';
 import { invitationService } from './services/api/invitationService';
 
 const SendInvitation: React.FC = () => {
@@ -126,7 +125,7 @@ const SendInvitation: React.FC = () => {
             console.log('Invitation created successfully:', data);
 
             // Step 2: Try to send the invitation email (may fail if backend email not configured)
-            const invitationId = data._id || data.id;
+            const invitationId = data._id;
             let emailSent = false;
             if (invitationId) {
                 try {
