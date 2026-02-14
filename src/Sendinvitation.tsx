@@ -16,11 +16,12 @@ import { invitationService } from './services/api/invitationService';
 
 const SendInvitation: React.FC = () => {
     const { isAuthenticated } = useSelector((state: RootState) => state.auth);
-    const [form, setForm] = useState({ recipientName: '', recipientEmail: '', message: '' });
+    const [form, setForm] = useState({ recipientName: '', recipientEmail: '', personalizedMessage: '' });
     const [tone, setTone] = useState('Romantic'); // Keep tone for AI generation only, don't send to backend
-    const [gallery, setGallery] = useState<string[]>([]);
+    const [carouselImages, setCarouselImages] = useState<string[]>([]);
     const [loading, setLoading] = useState(false);
     const [result, setResult] = useState<any>(null);
+    const [emailStatus, setEmailStatus] = useState<'idle' | 'sending' | 'sent' | 'failed'>('idle');
     const [copied, setCopied] = useState(false);
     const fileInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -31,11 +32,13 @@ const SendInvitation: React.FC = () => {
             const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_API_KEY });
             const prompt = `Write a ${tone} Valentine's invitation message for ${form.recipientName}. Under 30 words.`;
             const res = await ai.models.generateContent({ model: 'gemini-2.0-flash', contents: prompt });
-            // Assuming res.text property based on previous working code
-            setForm({ ...form, message: (res as any).text || '' });
-        } catch {
+            // Handle different possible response structures from the SDK
+            const generatedText = (res as any).text || (res as any).response?.text?.() || '';
+            setForm({ ...form, personalizedMessage: generatedText || "Will you be my Valentine? ❤️" });
+        } catch (error) {
+            console.error("AI Generation failed:", error);
             // Fallback
-            setForm({ ...form, message: "Will you be my Valentine? ❤️" });
+            setForm({ ...form, personalizedMessage: "Will you be my Valentine? ❤️" });
         } finally {
             setLoading(false);
         }
@@ -95,7 +98,12 @@ const SendInvitation: React.FC = () => {
                 const compressedImages = await Promise.all(
                     Array.from(files).map(file => compressImage(file))
                 );
-                setGallery(prev => [...prev, ...compressedImages]);
+                if (carouselImages.length + compressedImages.length > 10) {
+                    alert('You can only add up to 10 photos.');
+                    setLoading(false);
+                    return;
+                }
+                setCarouselImages(prev => [...prev, ...compressedImages]);
             } catch (error) {
                 console.error('Error compressing images:', error);
                 alert('Failed to process images. Please try again.');
@@ -113,38 +121,44 @@ const SendInvitation: React.FC = () => {
 
         setLoading(true);
         try {
-            // Backend is rejecting 'message' and 'images' - send only required fields
+            // Creating complete payload including message and images
             const payload: any = {
                 recipientName: form.recipientName,
                 recipientEmail: form.recipientEmail,
+                personalizedMessage: form.personalizedMessage || "Will you be my Valentine? ❤️",
+                message: form.personalizedMessage || "Will you be my Valentine? ❤️", // Old field fallback
+                carouselImages: carouselImages.map(img => ({ url: img })),
+                images: carouselImages, // Old field fallback (array of strings)
+                settings: {
+                    enableButtonEvasion: true,
+                    enableAutoAdvance: true,
+                    musicAutoPlay: true
+                }
             };
             console.log('Sending payload:', payload);
 
-            // Step 1: Create the invitation (status: draft)
+            // Step 1: Create the invitation
             const data = await invitationService.create(payload);
-            console.log('Invitation created successfully:', data);
+            console.log('--- Invitation Created ---');
+            console.log('ID:', data._id);
+            console.log('Data:', data);
 
-            // Step 2: Try to send the invitation email (may fail if backend email not configured)
-            const invitationId = data._id;
-            let emailSent = false;
-            if (invitationId) {
-                try {
-                    console.log('Attempting to send invitation email to recipient...');
-                    await invitationService.send(invitationId);
-                    console.log('✅ Invitation email sent successfully!');
-                    emailSent = true;
-                } catch (emailError: any) {
-                    console.warn('⚠️ Email sending failed (backend email not configured):', emailError);
-                    console.log('Invitation created but email not sent. Share the link manually.');
-                    // Don't throw - invitation is still created successfully
-                }
-            }
-
+            // Set the result object which contains _id and shortCode
             setResult(data);
+            alert(`✅ Invitation for ${form.recipientName} created successfully!`);
 
-            // Show appropriate message
-            if (!emailSent) {
-                alert('✅ Invitation created!\n\n⚠️ Note: Email sending failed (backend email service not configured).\n\nPlease copy and share the invitation link manually from the preview card below.');
+            // Step 2: Try to send the invitation email in the BACKGROUND
+            const invitationId = data._id;
+            if (invitationId) {
+                setEmailStatus('sending');
+                console.log('Attempting to send invitation email in background...');
+                invitationService.send(invitationId).then(() => {
+                    console.log('✅ Invitation email sent successfully!');
+                    setEmailStatus('sent');
+                }).catch((emailError: any) => {
+                    console.warn('⚠️ Background email sending failed:', emailError.message);
+                    setEmailStatus('failed');
+                });
             }
 
         } catch (error: any) {
@@ -229,8 +243,10 @@ const SendInvitation: React.FC = () => {
 
                         <div className="space-y-6">
                             <div className="space-y-2">
-                                <label className="text-sm font-semibold text-slate-700 dark:text-slate-300">Recipient's Name</label>
+                                <label htmlFor="recipientName" className="text-sm font-semibold text-slate-700 dark:text-slate-300">Recipient's Name</label>
                                 <input
+                                    id="recipientName"
+                                    name="recipientName"
                                     value={form.recipientName}
                                     onChange={e => setForm({ ...form, recipientName: e.target.value })}
                                     className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-[16px] px-5 py-4 text-slate-700 dark:text-slate-200 font-medium focus:ring-2 focus:ring-[#FF4D6D]/20 transition-all placeholder:text-slate-400 dark:placeholder:text-slate-600"
@@ -239,8 +255,10 @@ const SendInvitation: React.FC = () => {
                             </div>
 
                             <div className="space-y-2">
-                                <label className="text-sm font-semibold text-slate-700 dark:text-slate-300">Recipient's Email</label>
+                                <label htmlFor="recipientEmail" className="text-sm font-semibold text-slate-700 dark:text-slate-300">Recipient's Email</label>
                                 <input
+                                    id="recipientEmail"
+                                    name="recipientEmail"
                                     value={form.recipientEmail}
                                     onChange={e => setForm({ ...form, recipientEmail: e.target.value })}
                                     className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-[16px] px-5 py-4 text-slate-700 dark:text-slate-200 font-medium focus:ring-2 focus:ring-[#FF4D6D]/20 transition-all placeholder:text-slate-400 dark:placeholder:text-slate-600"
@@ -250,8 +268,8 @@ const SendInvitation: React.FC = () => {
 
                             <div className="space-y-4">
                                 <div className="flex justify-between items-center px-2">
-                                    <label className="text-sm font-semibold text-slate-700 dark:text-slate-300">Memory Gallery</label>
-                                    <span className="text-[10px] font-black text-slate-400 dark:text-slate-600 uppercase tracking-widest">{gallery.length} Photos Added</span>
+                                    <label className="text-sm font-semibold text-slate-700 dark:text-slate-300">Carousel Images</label>
+                                    <span className="text-[10px] font-black text-slate-400 dark:text-slate-600 uppercase tracking-widest">{carouselImages.length}/10 Photos Added</span>
                                 </div>
                                 <div className="grid grid-cols-4 md:grid-cols-6 gap-4">
                                     <input
@@ -270,12 +288,12 @@ const SendInvitation: React.FC = () => {
                                         <Plus size={24} className="group-hover:scale-110 transition-transform" />
                                         <span className="text-[10px] font-black uppercase tracking-tighter mt-1">Select Files</span>
                                     </button>
-                                    {gallery.map((url, i) => (
+                                    {carouselImages.map((url, i) => (
                                         <div key={i} className="aspect-square rounded-2xl bg-cover bg-center shadow-md border border-white dark:border-slate-800 relative group animate-in zoom-in duration-300" style={{ backgroundImage: `url(${url})` }}>
                                             <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity rounded-2xl"></div>
                                             <button
                                                 type="button"
-                                                onClick={() => setGallery(gallery.filter((_, idx) => idx !== i))}
+                                                onClick={() => setCarouselImages(carouselImages.filter((_, idx) => idx !== i))}
                                                 className="absolute -top-2 -right-2 bg-white dark:bg-slate-700 text-rose-500 rounded-full p-1.5 shadow-lg scale-0 group-hover:scale-100 transition-transform hover:bg-rose-50 dark:hover:bg-slate-600"
                                             >
                                                 <X size={14} />
@@ -286,7 +304,7 @@ const SendInvitation: React.FC = () => {
                             </div>
 
                             <div className="space-y-2">
-                                <label className="text-sm font-semibold text-slate-700 dark:text-slate-300">Personalized Message</label>
+                                <label htmlFor="message" className="text-sm font-semibold text-slate-700 dark:text-slate-300">Personalized Message</label>
                                 <div className="flex justify-between items-center px-2 mb-2">
                                     <div className="flex gap-2">
                                         <select value={tone} onChange={e => setTone(e.target.value)} className="text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border-none rounded-lg p-2 focus:ring-0">
@@ -300,26 +318,67 @@ const SendInvitation: React.FC = () => {
                                     </div>
                                 </div>
                                 <textarea
+                                    id="message"
+                                    name="message"
                                     rows={5}
-                                    value={form.message}
-                                    onChange={e => setForm({ ...form, message: e.target.value })}
+                                    value={form.personalizedMessage}
+                                    onChange={e => setForm({ ...form, personalizedMessage: e.target.value })}
                                     className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-[20px] px-5 py-4 text-slate-700 dark:text-slate-200 font-medium focus:ring-2 focus:ring-[#FF4D6D]/20 transition-all placeholder:text-slate-400 dark:placeholder:text-slate-600 resize-none"
                                     placeholder="Hi Manu, I made something cute for you..."
                                 />
                             </div>
 
                             {result ? (
-                                <div className="mt-8 bg-green-50 dark:bg-green-500/10 border border-green-100 dark:border-green-500/20 rounded-[16px] p-4 flex items-center justify-between">
-                                    <div className="flex items-center gap-3">
-                                        <div className="h-10 w-10 bg-green-100 dark:bg-green-500/20 text-green-600 dark:text-green-400 rounded-full flex items-center justify-center">
-                                            <Check size={20} />
+                                <div className="space-y-4">
+                                    <div className="bg-green-50 dark:bg-green-500/10 border border-green-100 dark:border-green-500/20 rounded-[16px] p-4 flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <div className="h-10 w-10 bg-green-100 dark:bg-green-500/20 text-green-600 dark:text-green-400 rounded-full flex items-center justify-center">
+                                                <Check size={20} />
+                                            </div>
+                                            <div>
+                                                <p className="font-bold text-green-800 dark:text-green-100 text-sm">Invitation Ready!</p>
+                                                <p className="text-green-600 dark:text-green-400 text-xs mt-0.5">Share the link from the preview card.</p>
+                                            </div>
                                         </div>
-                                        <div>
-                                            <p className="font-bold text-green-800 dark:text-green-100 text-sm">Invitation Ready!</p>
-                                            <p className="text-green-600 dark:text-green-400 text-xs mt-0.5">Share the link from the preview card.</p>
-                                        </div>
+                                        <button onClick={() => { setResult(null); setEmailStatus('idle'); }} className="text-green-600 dark:text-green-400 text-sm font-semibold hover:underline">Create New</button>
                                     </div>
-                                    <button onClick={() => setResult(null)} className="text-green-600 dark:text-green-400 text-sm font-semibold hover:underline">Create New</button>
+
+                                    {/* Email Status & Action Appears Here */}
+                                    <div className={`p-4 rounded-xl border flex items-center justify-between transition-all ${emailStatus === 'sending' ? 'bg-blue-50 border-blue-100 dark:bg-blue-500/10 dark:border-blue-500/20' :
+                                        emailStatus === 'sent' ? 'bg-green-50 border-green-100 dark:bg-green-500/10 dark:border-green-500/20' :
+                                            emailStatus === 'failed' ? 'bg-amber-50 border-amber-100 dark:bg-amber-500/10 dark:border-amber-500/20' :
+                                                'hidden'
+                                        }`}>
+                                        <div className="flex items-center gap-3">
+                                            {emailStatus === 'sending' && <div className="h-5 w-5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin"></div>}
+                                            {emailStatus === 'sent' && <Check size={18} className="text-green-500" />}
+                                            {emailStatus === 'failed' && <label className="text-lg">⚠️</label>}
+
+                                            <div>
+                                                <p className={`text-xs font-bold leading-none ${emailStatus === 'sending' ? 'text-blue-600' :
+                                                    emailStatus === 'sent' ? 'text-green-600' :
+                                                        'text-amber-600'
+                                                    }`}>
+                                                    {emailStatus === 'sending' ? 'Attempting to send email...' :
+                                                        emailStatus === 'sent' ? 'Email sent successfully!' :
+                                                            'Automatic email failed (server timeout)'}
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        {emailStatus === 'failed' && (
+                                            <button
+                                                onClick={() => {
+                                                    const subject = encodeURIComponent("I made something cute for you 😊");
+                                                    const body = encodeURIComponent(`Hi ${form.recipientName},\n\nI made something cute for you 😊.\n\nWill you be my Valentine? 💖 Click the link below.\n\nOpen your Valentine 💘\n${getLink()}\n\nWith lots of Love,\nYour husband 💘`);
+                                                    window.open(`mailto:${form.recipientEmail}?subject=${subject}&body=${body}`);
+                                                }}
+                                                className="bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase hover:bg-amber-200 transition-colors"
+                                            >
+                                                Send via Gmail/App
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
                             ) : (
                                 <button
@@ -358,8 +417,8 @@ const SendInvitation: React.FC = () => {
                             <p className="text-slate-400 dark:text-slate-500 italic text-sm mb-6">"Best decision ever 🥳"</p>
 
                             <div className="aspect-square bg-[#FFE5E9] dark:bg-slate-700 rounded-[20px] mb-6 flex items-center justify-center relative overflow-hidden group">
-                                {gallery.length > 0 ? (
-                                    <div className="absolute inset-0 bg-cover bg-center group-hover:scale-110 transition-transform duration-700" style={{ backgroundImage: `url(${gallery[0]})` }}></div>
+                                {carouselImages.length > 0 ? (
+                                    <div className="absolute inset-0 bg-cover bg-center group-hover:scale-110 transition-transform duration-700" style={{ backgroundImage: `url(${carouselImages[0]})` }}></div>
                                 ) : (
                                     <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1518568814500-bf0f8d125f46?q=80&w=250&auto=format&fit=crop')] bg-cover bg-center opacity-80 group-hover:scale-110 transition-transform duration-700"></div>
                                 )}

@@ -6,6 +6,8 @@ import {
     MoreVertical,
     ArrowUpRight
 } from 'lucide-react';
+import { invitationService } from './services/api/invitationService';
+
 
 const StatCard: React.FC<{
     title: string;
@@ -80,12 +82,64 @@ const ActivityRow: React.FC<{
 );
 
 const Overview: React.FC = () => {
-    const activities = [
-        { name: 'Sarah Miller', email: 'sarah.m@example.com', status: 'Opened Link', statusColor: 'bg-[#ECFDF5] text-[#10B981]', time: '2 minutes ago', initials: 'SM', initialColor: 'bg-rose-50 text-rose-400' },
-        { name: 'James Doe', email: 'james.doe@webmail.com', status: 'Accepted Proposal 💖', statusColor: 'bg-[#FFF1F2] text-[#F43F5E]', time: '15 minutes ago', initials: 'JD', initialColor: 'bg-rose-100/50 text-rose-500' },
-        { name: 'Anna Lee', email: 'anna.lee@domain.com', status: 'Opened Link', statusColor: 'bg-[#ECFDF5] text-[#10B981]', time: '42 minutes ago', initials: 'AL', initialColor: 'bg-rose-50 text-rose-400' },
-        { name: 'Mike Kole', email: 'mk@kole.io', status: 'Sent', statusColor: 'bg-[#F1F5F9] text-[#64748B]', time: '1 hour ago', initials: 'MK', initialColor: 'bg-rose-50 text-rose-300' },
-    ];
+    const [stats, setStats] = React.useState<any>(null);
+    const [activities, setActivities] = React.useState<any[]>([]);
+    const [loading, setLoading] = React.useState(true);
+
+    React.useEffect(() => {
+        const fetchData = async () => {
+            try {
+                const [statsData, recentData] = await Promise.all([
+                    invitationService.getStats(),
+                    invitationService.getAll(undefined, 1, 4)
+                ]);
+
+                setStats(statsData);
+                setActivities(recentData.data);
+            } catch (error) {
+                console.error("Failed to fetch overview data:", error);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchData();
+    }, []);
+
+    const getInitials = (name: string) => {
+        return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+    };
+
+    const getRandomColor = (name: string) => {
+        const colors = [
+            'bg-rose-50 text-rose-400',
+            'bg-rose-100/50 text-rose-500',
+            'bg-rose-50 text-rose-300'
+        ];
+        const index = name.length % colors.length;
+        return colors[index];
+    };
+
+    const getStatusInfo = (status: string) => {
+        switch (status) {
+            case 'accepted': return { label: 'Accepted Proposal 💖', color: 'bg-[#FFF1F2] text-[#F43F5E]' };
+            case 'opened': return { label: 'Opened Link', color: 'bg-[#ECFDF5] text-[#10B981]' };
+            default: return { label: 'Sent', color: 'bg-[#F1F5F9] text-[#64748B]' };
+        }
+    };
+
+    if (loading) {
+        return (
+            <div className="p-10 flex flex-col items-center justify-center min-h-[400px]">
+                <div className="h-10 w-10 border-4 border-[#FF4D6D]/20 border-t-[#FF4D6D] rounded-full animate-spin"></div>
+            </div>
+        );
+    }
+
+    const displayStats = {
+        totalInvitations: stats?.totalInvitations || 0,
+        openRate: stats?.openRate || 0,
+        accepted: stats?.accepted || 0
+    };
 
     return (
         <div className="p-10 max-w-[1400px] mx-auto font-plus-jakarta animate-in fade-in slide-in-from-bottom-4 duration-700">
@@ -93,7 +147,7 @@ const Overview: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
                 <StatCard
                     title="Total Invitations Sent"
-                    value="1,284"
+                    value={displayStats.totalInvitations.toLocaleString()}
                     trend="+12%"
                     icon={Mail}
                     color="bg-[#FF4D6D]"
@@ -101,7 +155,7 @@ const Overview: React.FC = () => {
                 />
                 <StatCard
                     title="Average Open Rate"
-                    value="84.5%"
+                    value={`${displayStats.openRate}%`}
                     trend="+5.2%"
                     icon={Eye}
                     color="bg-[#FF8FA3]"
@@ -109,7 +163,7 @@ const Overview: React.FC = () => {
                 />
                 <StatCard
                     title="Accepted Proposals"
-                    value="412"
+                    value={displayStats.accepted.toLocaleString()}
                     trend="+24%"
                     icon={Heart}
                     color="bg-[#FFB3C1]"
@@ -123,7 +177,7 @@ const Overview: React.FC = () => {
                         <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">Recent Activity</h2>
                         <p className="text-slate-400 dark:text-slate-500 text-xs mt-1">Track how your recipients interact with their links</p>
                     </div>
-                    <button className="text-[#FF4D6D] font-bold text-sm hover:underline">View All</button>
+                    <button onClick={() => window.location.href = '/#/recipients'} className="text-[#FF4D6D] font-bold text-sm hover:underline">View All</button>
                 </div>
 
                 <div className="bg-rose-50/20 dark:bg-slate-800/50 grid grid-cols-12 py-4 px-8 border-b border-rose-50/50 dark:border-slate-800">
@@ -134,9 +188,28 @@ const Overview: React.FC = () => {
                 </div>
 
                 <div className="divide-y divide-rose-50/30">
-                    {activities.map((act, i) => (
-                        <ActivityRow key={i} {...act} />
-                    ))}
+                    {activities.length > 0 ? (
+                        activities.map((act) => {
+                            const statusInfo = getStatusInfo(act.status);
+                            const time = new Date(act.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                            return (
+                                <ActivityRow
+                                    key={act._id}
+                                    name={act.recipientName}
+                                    email={act.recipientEmail}
+                                    status={statusInfo.label}
+                                    statusColor={statusInfo.color}
+                                    time={`${time} on ${new Date(act.createdAt).toLocaleDateString()}`}
+                                    initials={getInitials(act.recipientName)}
+                                    initialColor={getRandomColor(act.recipientName)}
+                                />
+                            );
+                        })
+                    ) : (
+                        <div className="py-20 text-center text-slate-400">
+                            No recent activity to show.
+                        </div>
+                    )}
                 </div>
             </div>
         </div>

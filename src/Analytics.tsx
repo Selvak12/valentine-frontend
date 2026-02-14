@@ -11,6 +11,8 @@ import {
     Smartphone,
     Tablet,
 } from 'lucide-react';
+import { invitationService } from './services/api/invitationService';
+
 
 const StatCard: React.FC<{
     title: string;
@@ -91,15 +93,55 @@ const LiveFeedItem: React.FC<{ type: 'accepted' | 'sent' | 'opened'; content: Re
 };
 
 const Analytics: React.FC = () => {
+    const [stats, setStats] = React.useState<any>(null);
+    const [activities, setActivities] = React.useState<any[]>([]);
+    const [loading, setLoading] = React.useState(true);
+
+    React.useEffect(() => {
+        const fetchData = async () => {
+            try {
+                const [statsData, recentData] = await Promise.all([
+                    invitationService.getStats(),
+                    invitationService.getAll(undefined, 1, 5)
+                ]);
+
+                setStats(statsData);
+                setActivities(recentData.data);
+            } catch (error) {
+                console.error("Failed to fetch analytics:", error);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchData();
+    }, []);
+
+    if (loading) {
+        return (
+            <div className="p-10 flex flex-col items-center justify-center min-h-[600px]">
+                <div className="h-12 w-12 border-4 border-[#FF4D6D]/20 border-t-[#FF4D6D] rounded-full animate-spin mb-4"></div>
+                <p className="text-slate-400 font-bold uppercase tracking-widest text-xs">Loading Live Analytics...</p>
+            </div>
+        );
+    }
+
+    // Fallback/Default stats if backend returns empty or different structure
+    const displayStats = {
+        totalInvitations: stats?.totalInvitations || 0,
+        accepted: stats?.accepted || 0,
+        openRate: stats?.openRate || 0,
+        acceptanceRate: stats?.acceptanceRate || 0
+    };
+
     return (
         <div className="p-10 max-w-[1400px] mx-auto font-plus-jakarta animate-in fade-in slide-in-from-bottom-4 duration-700">
 
             {/* Top Stats Overview */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
-                <StatCard title="Invitations Sent" value="1,284" trend="up" trendValue="+12%" icon={Mail} color="bg-[#FF4D6D]" />
-                <StatCard title="Total &quot;Yes&quot; Hits" value="942" trend="up" trendValue="+8.4%" icon={Heart} color="bg-[#FF8FA3]" />
-                <StatCard title="Conversion Rate" value="73.3%" trend="none" trendValue="0%" icon={Eye} color="bg-[#FFB3C1]" />
-                <StatCard title="Avg. Interaction" value="4m 12s" trend="down" trendValue="-2%" icon={Clock} color="bg-[#FFC4D1]" />
+                <StatCard title="Invitations Sent" value={displayStats.totalInvitations.toLocaleString()} trend="up" trendValue="+12%" icon={Mail} color="bg-[#FF4D6D]" />
+                <StatCard title="Total &quot;Yes&quot; Hits" value={displayStats.accepted.toLocaleString()} trend="up" trendValue="+8.4%" icon={Heart} color="bg-[#FF8FA3]" />
+                <StatCard title="Open Rate" value={`${displayStats.openRate}%`} trend="none" trendValue="0%" icon={Eye} color="bg-[#FFB3C1]" />
+                <StatCard title="Acceptance Rate" value={`${displayStats.acceptanceRate}%`} trend="none" trendValue="0%" icon={Clock} color="bg-[#FFC4D1]" />
             </div>
 
             <div className="grid grid-cols-12 gap-8 mb-10">
@@ -205,21 +247,34 @@ const Analytics: React.FC = () => {
                 <div className="col-span-12 lg:col-span-5 bg-white dark:bg-slate-900 rounded-[32px] p-8 shadow-sm border border-slate-50 dark:border-slate-800 transition-colors">
                     <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-8">Live Feed</h2>
                     <div className="space-y-2">
-                        <LiveFeedItem
-                            type="accepted"
-                            content={<span><span className="font-bold text-slate-800 dark:text-slate-100">Sophia M.</span> accepted the invitation from <span className="text-[#FF4D6D] font-bold">Julian</span></span>}
-                            time="2 minutes ago"
-                        />
-                        <LiveFeedItem
-                            type="sent"
-                            content={<span><span className="font-bold text-slate-800 dark:text-slate-100">Admin</span> sent a new invitation to <span className="text-slate-800 dark:text-slate-200 font-bold">alex@email.com</span></span>}
-                            time="14 minutes ago"
-                        />
-                        <LiveFeedItem
-                            type="opened"
-                            content={<span>Someone opened the link <span className="text-rose-300 italic">val.invite/x/manu-2024</span></span>}
-                            time="45 minutes ago"
-                        />
+                        {activities.length > 0 ? (
+                            activities.map((act) => {
+                                const time = new Date(act.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                                let type: 'accepted' | 'sent' | 'opened' = 'sent';
+                                if (act.status === 'accepted') type = 'accepted';
+                                else if (act.status === 'opened') type = 'opened';
+
+                                return (
+                                    <LiveFeedItem
+                                        key={act._id}
+                                        type={type}
+                                        content={
+                                            <span>
+                                                <span className="font-bold text-slate-800 dark:text-slate-100">{act.recipientName}</span>
+                                                {act.status === 'accepted' ? ' accepted your invitation! 💖' :
+                                                    act.status === 'opened' ? ' opened the link.' :
+                                                        ` invitation was sent to ${act.recipientEmail}`}
+                                            </span>
+                                        }
+                                        time={time}
+                                    />
+                                );
+                            })
+                        ) : (
+                            <div className="text-center py-10">
+                                <p className="text-slate-400 text-sm">No recent activity yet.</p>
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>

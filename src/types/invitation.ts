@@ -1,12 +1,14 @@
 export interface InvitationData {
     recipientName: string;
     recipientEmail: string;
-    message: string;
-    images?: string[];
+    personalizedMessage: string;
+    carouselImages?: { url: string }[];
     songUrl?: string;
-    enableButtonEvasion?: boolean;
-    enableAutoAdvance?: boolean;
-    musicAutoPlay?: boolean;
+    settings: {
+        enableButtonEvasion: boolean;
+        enableAutoAdvance: boolean;
+        musicAutoPlay: boolean;
+    };
 }
 
 export interface Invitation extends InvitationData {

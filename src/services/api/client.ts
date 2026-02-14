@@ -4,7 +4,7 @@ import { clearAuth } from '../../store/slices/authSlice';
 
 const apiClient = axios.create({
     baseURL: import.meta.env.VITE_API_URL || 'https://valentine-backend-15oz.onrender.com/api',
-    timeout: 10000,
+    timeout: 120000, // Increased to 120s to handle image uploads
     headers: {
         'Content-Type': 'application/json',
     },

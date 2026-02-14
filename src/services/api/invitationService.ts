@@ -45,16 +45,17 @@ export const invitationService = {
      * Get invitation by ID
      */
     getById: async (id: string): Promise<Invitation> => {
-        const response = await apiClient.get<Invitation>(`/invitations/${id}`);
-        return response.data;
+        const response = await apiClient.get<any>(`/invitations/${id}`);
+        return response.data.data || response.data;
     },
 
     /**
      * Get invitation by short code (public endpoint)
      */
     getByShortCode: async (shortCode: string): Promise<Invitation> => {
-        const response = await apiClient.get<Invitation>(`/track/${shortCode}`);
-        return response.data;
+        const response = await apiClient.get<any>(`/track/${shortCode}`);
+        // Handle both wrapped and unwrapped responses
+        return response.data.data || response.data;
     },
 
     /**

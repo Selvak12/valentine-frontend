@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
     Search,
     Download,
@@ -7,6 +7,7 @@ import {
     ChevronLeft,
     ChevronRight,
 } from 'lucide-react';
+import { invitationService } from './services/api/invitationService';
 
 const RecipientRow: React.FC<{
     name: string;
@@ -52,14 +53,45 @@ const RecipientRow: React.FC<{
 };
 
 const Recipiants: React.FC = () => {
-    const [search, setSearch] = useState('');
+    const [search, setSearch] = React.useState('');
+    const [data, setData] = React.useState<any[]>([]);
+    const [loading, setLoading] = React.useState(true);
+    const [pagination, setPagination] = React.useState<any>(null);
 
-    const data = [
-        { name: 'Manu', email: 'manu@example.com', status: 'Accepted' as const, dateSent: 'Feb 10, 2024', initials: 'M', color: 'bg-rose-50 text-rose-400' },
-        { name: 'Jessica Chen', email: 'jess.chen@web.com', status: 'Opened' as const, dateSent: 'Feb 12, 2024', initials: 'J', color: 'bg-blue-50 text-blue-400' },
-        { name: 'Alex River', email: 'alex.river@mail.com', status: 'Sent' as const, dateSent: 'Feb 13, 2024', initials: 'A', color: 'bg-amber-50 text-amber-400' },
-        { name: 'Sarah Smith', email: 'sarah@domain.org', status: 'Accepted' as const, dateSent: 'Feb 09, 2024', initials: 'S', color: 'bg-rose-50 text-rose-400' },
-    ];
+    React.useEffect(() => {
+        const fetchRecipients = async () => {
+            setLoading(true);
+            try {
+                const res = await invitationService.getAll({ searchQuery: search });
+                setData(res.data);
+                setPagination(res.pagination);
+            } catch (error) {
+                console.error("Failed to fetch recipients:", error);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        const debounce = setTimeout(fetchRecipients, 500);
+        return () => clearTimeout(debounce);
+    }, [search]);
+
+    const getInitials = (name: string) => {
+        return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+    };
+
+    const getRandomColor = (name: string) => {
+        const colors = [
+            'bg-rose-50 text-rose-400',
+            'bg-blue-50 text-blue-400',
+            'bg-amber-50 text-amber-400',
+            'bg-green-50 text-green-400',
+            'bg-purple-50 text-purple-400'
+        ];
+        // Simple deterministic color based on name
+        const index = name.length % colors.length;
+        return colors[index];
+    };
 
     return (
         <div className="p-10 max-w-[1400px] mx-auto font-plus-jakarta animate-in fade-in slide-in-from-bottom-4 duration-700">
@@ -71,7 +103,7 @@ const Recipiants: React.FC = () => {
                     <input
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
-                        placeholder="Search recipients..."
+                        placeholder="Search by name or email..."
                         className="w-full bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-[18px] pl-12 pr-5 py-4 text-sm focus:ring-2 focus:ring-[#FF4D6D]/20 outline-none shadow-sm transition-all text-slate-800 dark:text-slate-100"
                     />
                 </div>
@@ -80,7 +112,7 @@ const Recipiants: React.FC = () => {
                         <Download size={18} />
                         Export CSV
                     </button>
-                    <button className="flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-4 bg-[#FF4D6D] text-white rounded-[18px] font-bold text-sm shadow-lg shadow-rose-200 hover:bg-[#ff3355] transition-all">
+                    <button onClick={() => window.location.href = '/#/'} className="flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-4 bg-[#FF4D6D] text-white rounded-[18px] font-bold text-sm shadow-lg shadow-rose-200 hover:bg-[#ff3355] transition-all">
                         <Plus size={18} />
                         Add New
                     </button>
@@ -98,19 +130,41 @@ const Recipiants: React.FC = () => {
                 </div>
 
                 <div className="divide-y divide-rose-50/30">
-                    {data.map((row, i) => (
-                        <RecipientRow key={i} {...row} />
-                    ))}
+                    {loading ? (
+                        <div className="py-20 flex justify-center">
+                            <div className="h-8 w-8 border-2 border-[#FF4D6D]/20 border-t-[#FF4D6D] rounded-full animate-spin"></div>
+                        </div>
+                    ) : data.length > 0 ? (
+                        data.map((row) => (
+                            <RecipientRow
+                                key={row._id}
+                                name={row.recipientName}
+                                email={row.recipientEmail}
+                                status={(row.status.charAt(0).toUpperCase() + row.status.slice(1)) as 'Accepted' | 'Opened' | 'Sent'}
+
+                                dateSent={new Date(row.createdAt).toLocaleDateString()}
+                                initials={getInitials(row.recipientName)}
+                                color={getRandomColor(row.recipientName)}
+                            />
+                        ))
+                    ) : (
+                        <div className="py-20 text-center text-slate-400">
+                            No recipients found.
+                        </div>
+                    )}
                 </div>
 
                 {/* Footer/Pagination Info */}
                 <div className="p-8 flex flex-col md:flex-row items-center justify-between border-t border-rose-50/30 dark:border-slate-800 gap-4">
-                    <p className="text-slate-400 dark:text-slate-500 text-sm font-medium">Showing 1-4 of 24 recipients</p>
+                    <p className="text-slate-400 dark:text-slate-500 text-sm font-medium">
+                        Showing {data.length} of {pagination?.total || data.length} recipients
+                    </p>
                     <div className="flex items-center gap-2">
                         <button className="h-10 w-10 flex items-center justify-center rounded-xl border border-slate-100 dark:border-slate-800 text-slate-400 dark:text-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all"><ChevronLeft size={18} /></button>
                         <button className="h-10 w-10 flex items-center justify-center rounded-xl bg-[#FF4D6D] text-white font-bold text-sm shadow-md shadow-rose-100 transition-all">1</button>
-                        <button className="h-10 w-10 flex items-center justify-center rounded-xl border border-slate-100 dark:border-slate-800 text-slate-600 dark:text-slate-300 font-bold text-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition-all">2</button>
-                        <button className="h-10 w-10 flex items-center justify-center rounded-xl border border-slate-100 dark:border-slate-800 text-slate-600 dark:text-slate-300 font-bold text-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition-all">3</button>
+                        {pagination?.totalPages > 1 && (
+                            <button className="h-10 w-10 flex items-center justify-center rounded-xl border border-slate-100 dark:border-slate-800 text-slate-600 dark:text-slate-300 font-bold text-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition-all">2</button>
+                        )}
                         <button className="h-10 w-10 flex items-center justify-center rounded-xl border border-slate-100 dark:border-slate-800 text-slate-400 dark:text-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all"><ChevronRight size={18} /></button>
                     </div>
                 </div>

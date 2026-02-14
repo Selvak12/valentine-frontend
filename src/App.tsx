@@ -33,6 +33,19 @@ import ProtectedRoute from './components/ProtectedRoute'; // Import ProtectedRou
 import { logout } from './store/slices/authSlice'; // Import logout action
 import type { RootState, AppDispatch } from './store/store';
 
+// Import story carousel images (using the higher quality versions)
+import love1 from './assets/carousel/love 1.jpeg';
+import love2 from './assets/carousel/love 2.jpeg';
+import love3 from './assets/carousel/love 3.jpeg';
+import love4 from './assets/carousel/love 4.jpeg';
+import love5 from './assets/carousel/love 5.jpeg';
+import loveGroup from './assets/carousel/love group.jpeg';
+
+
+// Import local romantic song
+import romanticSong from './assets/Songs/unnai_kanatha.mpeg';
+
+
 const Sidebar: React.FC<{ darkMode: boolean; toggleDark: () => void }> = ({ darkMode, toggleDark }) => {
   const loc = useLocation();
   const navs = [
@@ -190,6 +203,16 @@ const ConfettiBurst: React.FC = () => (
   </div>
 );
 
+const DEFAULT_ROMANTIC_PHOTOS = [
+  love1,
+  love2,
+  love3,
+  love4,
+  love5
+];
+
+
+
 const ExperienceView: React.FC = () => {
   const { id } = useParams();
   const [inv, setInv] = useState<Invitation | null>(null);
@@ -199,16 +222,49 @@ const ExperienceView: React.FC = () => {
   const [noCount, setNoCount] = useState(0);
   const [showSurprisePrompt, setShowSurprisePrompt] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [isPaused, setIsPaused] = useState(false);
   const audioRef = React.useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     if (id) {
       invitationService.getByShortCode(id).then(d => {
         if (d) {
-          setInv(d as any);
-          // Don't update status - invitation is already created
+          console.log('--- Debug: Loaded Invitation Object ---', d);
+
+          // Step 1: Extract the core data (handle data wrappers)
+          const source: any = (d as any).data || d;
+
+
+          // Step 2: Aggressive image discovery
+          // Check every field name used in current and past versions
+          let rawImages = source.carouselImages || source.images || source.gallery || source.media || source.messageImages || [];
+
+          // If it's still empty, check if it's nested in source.data
+          if ((!rawImages || rawImages.length === 0) && source.data) {
+            rawImages = source.data.carouselImages || source.data.images || source.data.gallery || [];
+          }
+
+          // Step 3: Normalize to array of objects { url: string }
+          const normalizedImages = (Array.isArray(rawImages) ? rawImages : [])
+            .map((img: any) => {
+              if (typeof img === 'string') return { url: img };
+              if (img && typeof img === 'object') {
+                return { url: img.url || img.image || img.path || img.src };
+              }
+              return null;
+            })
+            .filter(Boolean);
+
+          const normalizedData = {
+            ...source,
+            personalizedMessage: source.personalizedMessage || source.message || 'will you be my Valentine? 💖💞',
+            carouselImages: normalizedImages
+          };
+
+          console.log('--- Debug: Final Normalized Invitation ---', normalizedData);
+          setInv(normalizedData as any);
           if (d._id) {
-            trackingService.recordPageView({ invitationId: d._id, shortCode: id }); // Record page view
+            trackingService.recordPageView({ invitationId: d._id, shortCode: id });
           }
         }
         setLoading(false);
@@ -226,45 +282,55 @@ const ExperienceView: React.FC = () => {
   useEffect(() => {
     if (stage === 'accepted') {
       const timer = setTimeout(() => {
-        setShowSurprisePrompt(true);
+        if (inv?.settings?.enableAutoAdvance) {
+          setStage('surprise_reveal');
+        } else {
+          setShowSurprisePrompt(true);
+        }
       }, 10000); // 10 seconds delay
       return () => clearTimeout(timer);
     }
-  }, [stage]);
+  }, [stage, inv]);
 
   useEffect(() => {
-    if (stage === 'surprise_reveal' && inv?.images && inv.images.length > 2) {
-      const carouselImages = inv.images.slice(2);
+    if (stage === 'surprise_reveal') {
+      const uploadedImages = (inv?.carouselImages || []).length > 0
+        ? inv?.carouselImages
+        : DEFAULT_ROMANTIC_PHOTOS.map(url => ({ url }));
+
       const timer = setInterval(() => {
-        setCarouselIndex((prev) => (prev + 1) % carouselImages.length);
+        setCarouselIndex((prev) => (prev + 1) % (uploadedImages?.length || 1));
       }, 5000);
       return () => clearInterval(timer);
     }
   }, [stage, inv]);
 
   useEffect(() => {
-    if (stage === 'surprise_reveal') {
+    const shouldPlay = stage === 'surprise_reveal' || (stage === 'accepted' && inv?.settings?.musicAutoPlay);
+
+    if (shouldPlay) {
       if (!audioRef.current) {
-        audioRef.current = new Audio('https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3');
+        audioRef.current = new Audio(romanticSong);
         audioRef.current.loop = true;
       }
-      audioRef.current.play().catch(e => console.log("Audio playback failed:", e));
+
+      audioRef.current.play().then(() => setIsPaused(false)).catch(e => console.log("Audio playback failed:", e));
     }
     return () => {
-      if (stage === 'surprise_reveal' && audioRef.current) {
-        audioRef.current.pause();
-      }
+      // Only pause if we've reached a stage where it should stop (like navigating away)
+      // or if we're moving from reveal back to something else
     };
-  }, [stage]);
+  }, [stage, inv]);
 
   const handleNo = () => {
     setNoCount(prev => prev + 1);
 
-    // Calculate random position within viewport
-    const x = Math.random() * (window.innerWidth - 150);
-    const y = Math.random() * (window.innerHeight - 100);
-
-    setNoPos({ x, y });
+    if (inv?.settings?.enableButtonEvasion !== false) {
+      // Calculate random position within viewport
+      const x = Math.random() * (window.innerWidth - 150);
+      const y = Math.random() * (window.innerHeight - 100);
+      setNoPos({ x, y });
+    }
   };
 
   const getNoButtonText = () => {
@@ -327,7 +393,7 @@ const ExperienceView: React.FC = () => {
 
           {/* Main Question */}
           <h2 className="text-3xl sm:text-4xl font-bold text-slate-800 mb-2 leading-tight">
-            {inv.recipientName}, will you be my Valentine? 💖💞
+            {inv?.recipientName ? `${inv.recipientName}, ` : 'Ajitha'}, {inv?.personalizedMessage || 'will you be my Valentine? 💖💞'}
           </h2>
 
           {/* Subtitle Message */}
@@ -366,133 +432,165 @@ const ExperienceView: React.FC = () => {
             </button>
           </div>
         </div>
-      )}
+      )
+      }
 
-      {stage === 'accepted' && (
-        <div className="max-w-xl w-full bg-white rounded-[4rem] p-12 md:p-16 shadow-[0_60px_200px_rgba(244,63,94,0.2)] text-center animate-in zoom-in-50 duration-1000">
-          {/* Heading */}
-          <h2 className="text-5xl md:text-6xl font-black text-slate-800 mb-4 flex items-center justify-center gap-3">
-            <span className="text-rose-500">💖</span> YAY!!! <span className="text-rose-500">💖</span>
-          </h2>
+      {
+        stage === 'accepted' && (
+          <div className="max-w-xl w-full bg-white rounded-[4rem] p-12 md:p-16 shadow-[0_60px_200px_rgba(244,63,94,0.2)] text-center animate-in zoom-in-50 duration-1000">
+            {/* Heading */}
+            <h2 className="text-5xl md:text-6xl font-black text-slate-800 mb-4 flex items-center justify-center gap-3">
+              <span className="text-rose-500">💖</span> YAY!!! <span className="text-rose-500">💖</span>
+            </h2>
 
-          {/* Subtitle */}
-          <p className="text-slate-600 text-xl font-medium mb-10">
-            Best decision ever 😋
-          </p>
+            {/* Subtitle */}
+            <p className="text-slate-600 text-xl font-medium mb-10">
+              Best decision ever 😋
+            </p>
 
-          {/* Couple Animation/Sticker */}
-          <div className="flex justify-center mb-8">
-            <div className="relative p-4 bg-white rounded-3xl shadow-lg border border-rose-50 overflow-hidden">
-              <img
-                src="https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExMmo4dWRtODU0eTRrdm96N3N2NWFyZzFnbG9qN2N6N3N2NWFyZzFnbCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9cw/Y8S5mS6XfFp1S/giphy.gif"
-                className="h-64 md:h-80 w-auto rounded-2xl mx-auto"
-                alt="Cute Couple"
-              />
+            {/* Couple Animation/Sticker */}
+            <div className="flex justify-center mb-8">
+              <div className="relative p-6 bg-white/40 backdrop-blur-md rounded-[3rem] shadow-2xl border border-white/50 overflow-hidden group">
+                <img
+                  src={loveGroup}
+                  className="max-h-[400px] w-auto rounded-[2rem] mx-auto object-contain shadow-2xl transition-transform duration-700 group-hover:scale-105"
+                  alt="Cute Couple"
+                />
+              </div>
+
+
+
+
             </div>
+
+            {/* Bottom Message */}
+            <p className="text-slate-500 text-lg font-bold">
+              I love you ❤️
+            </p>
+
+            {/* New Surprise Prompt (appears after 10s) */}
+            {showSurprisePrompt && (
+              <div className="mt-12 pt-8 border-t border-rose-50 animate-in slide-in-from-bottom-10 duration-[2000ms]">
+                <h2 className="text-4xl font-black text-slate-800 mb-2">hey {inv.recipientName}</h2>
+                <p className="text-2xl font-pacifico text-rose-500 mb-8">Another surprise for you...</p>
+                <button
+                  onClick={() => {
+                    setStage('surprise_reveal');
+                    // Ensure music starts on interaction if needed, though the useEffect handles it
+                  }}
+                  className="h-20 w-20 bg-white shadow-2xl rounded-full flex items-center justify-center text-rose-500 hover:scale-110 active:scale-95 transition-all mx-auto border-4 border-rose-100"
+                >
+                  <ArrowDown size={40} className="animate-bounce" />
+                </button>
+              </div>
+            )}
           </div>
-
-          {/* Bottom Message */}
-          <p className="text-slate-500 text-lg font-bold">
-            I love you ❤️
-          </p>
-
-          {/* New Surprise Prompt (appears after 10s) */}
-          {showSurprisePrompt && (
-            <div className="mt-12 pt-8 border-t border-rose-50 animate-in slide-in-from-bottom-10 duration-[2000ms]">
-              <h2 className="text-4xl font-black text-slate-800 mb-2">hey {inv.recipientName}</h2>
-              <p className="text-2xl font-pacifico text-rose-500 mb-8">Another surprise for you...</p>
-              <button
-                onClick={() => {
-                  setStage('surprise_reveal');
-                  // Ensure music starts on interaction if needed, though the useEffect handles it
-                }}
-                className="h-20 w-20 bg-white shadow-2xl rounded-full flex items-center justify-center text-rose-500 hover:scale-110 active:scale-95 transition-all mx-auto border-4 border-rose-100"
-              >
-                <ArrowDown size={40} className="animate-bounce" />
-              </button>
-            </div>
-          )}
-        </div>
-      )}
+        )
+      }
 
       {/* Removed separate surprise_ready stage as it's now integrated into accepted stage */}
 
-      {stage === 'surprise_reveal' && (
-        <div className="max-w-4xl w-full text-center animate-in slide-in-from-bottom-20 duration-1000">
-          <h2 className="text-6xl font-pacifico text-rose-500 mb-12 drop-shadow-lg">Our Story So Far</h2>
-          {inv.images && inv.images.length > 2 ? (
-            <div className="relative group mx-auto max-w-2xl px-4">
-              <div className="relative h-[500px] w-full group overflow-hidden rounded-[3rem] shadow-[0_40px_100px_rgba(0,0,0,0.2)] border-[12px] border-white">
-                {inv.images.slice(2).map((img, idx) => (
-                  <div
-                    key={idx}
-                    className={`absolute inset-0 bg-cover bg-center transition-all duration-1000 ease-in-out ${idx === carouselIndex ? 'opacity-100 scale-100' : 'opacity-0 scale-110'
-                      }`}
-                    style={{ backgroundImage: `url(${img})` }}
-                  >
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent"></div>
+      {
+        stage === 'surprise_reveal' && (
+          <div className="max-w-4xl w-full text-center animate-in slide-in-from-bottom-20 duration-1000">
+            <h2 className="text-6xl font-pacifico text-rose-500 mb-12 drop-shadow-lg">Our Story So Far</h2>
+            {(() => {
+              // Safe mapping: handle both string array and object array and fallback to default
+              let uploadedImages = (inv?.carouselImages || []).map((img: any) =>
+                typeof img === 'string' ? { url: img } : img
+              );
+
+              if (uploadedImages.length === 0) {
+                uploadedImages = DEFAULT_ROMANTIC_PHOTOS.map(url => ({ url }));
+              }
+
+              return (
+                <div className="relative group mx-auto max-w-2xl px-4">
+                  <div className="relative h-[70vh] w-full group overflow-hidden rounded-[4rem] shadow-[0_50px_100px_rgba(0,0,0,0.1)] border-[16px] border-white/80 bg-white/30 backdrop-blur-sm">
+                    {uploadedImages.map((img: any, idx: number) => (
+                      <div
+                        key={idx}
+                        className={`absolute inset-0 flex items-center justify-center transition-all duration-1000 ease-in-out ${idx === carouselIndex ? 'opacity-100 scale-100 translate-x-0' : 'opacity-0 scale-95 translate-x-10'
+                          }`}
+                      >
+                        <img
+                          src={img.url}
+                          alt="Story moment"
+                          className="max-w-[90%] max-h-[90%] object-contain rounded-2xl shadow-lg"
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/5 via-transparent to-transparent pointer-events-none"></div>
+                      </div>
+                    ))}
+
+
+                    {/* Navigation Arrows */}
+                    {uploadedImages.length > 1 && (
+                      <>
+                        <button
+                          onClick={() => setCarouselIndex((prev) => (prev - 1 + uploadedImages.length) % uploadedImages.length)}
+                          className="absolute left-6 top-1/2 -translate-y-1/2 h-12 w-12 bg-white/30 backdrop-blur-md text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all hover:bg-white/50"
+                        >
+                          <ChevronLeft size={24} />
+                        </button>
+                        <button
+                          onClick={() => setCarouselIndex((prev) => (prev + 1) % uploadedImages.length)}
+                          className="absolute right-6 top-1/2 -translate-y-1/2 h-12 w-12 bg-white/30 backdrop-blur-md text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all hover:bg-white/50"
+                        >
+                          <ChevronRight size={24} />
+                        </button>
+                      </>
+                    )}
+
+                    <div className="absolute bottom-8 left-10 text-white text-left">
+                      <p className="text-3xl font-pacifico drop-shadow-md">Cherishing every moment...</p>
+                    </div>
                   </div>
-                ))}
 
-                {/* Navigation Arrows */}
-                {inv.images.slice(2).length > 1 && (
-                  <>
+                  {/* Music Player Indicator */}
+                  <div className="mt-12 flex items-center justify-center gap-6">
+                    <div className="bg-white/80 backdrop-blur-md px-8 py-4 rounded-full shadow-xl flex items-center gap-4 border border-rose-50">
+                      <div className="h-3 w-3 rounded-full bg-rose-500 animate-pulse"></div>
+                      <span className="text-sm font-bold text-slate-600 tracking-tight">Playing: Unnai Kanatha...</span>
+
+                      <Music size={18} className="text-rose-400 animate-spin-slow" />
+                    </div>
+
                     <button
-                      onClick={() => setCarouselIndex((prev) => (prev - 1 + (inv.images!.length - 2)) % (inv.images!.length - 2))}
-                      className="absolute left-6 top-1/2 -translate-y-1/2 h-12 w-12 bg-white/30 backdrop-blur-md text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all hover:bg-white/50"
+                      onClick={() => {
+                        if (audioRef.current) {
+                          if (audioRef.current.paused) {
+                            audioRef.current.play();
+                            setIsPaused(false);
+                          } else {
+                            audioRef.current.pause();
+                            setIsPaused(true);
+                          }
+                        }
+                      }}
+                      className="h-14 w-14 bg-rose-50 text-rose-500 rounded-full flex items-center justify-center hover:bg-rose-100 transition-all border-2 border-white shadow-lg"
                     >
-                      <ChevronLeft size={24} />
+                      {isPaused ? <Play fill="currentColor" size={24} /> : <div className="flex gap-1"><div className="w-1.5 h-6 bg-current rounded-full"></div><div className="w-1.5 h-6 bg-current rounded-full"></div></div>}
                     </button>
-                    <button
-                      onClick={() => setCarouselIndex((prev) => (prev + 1) % (inv.images!.length - 2))}
-                      className="absolute right-6 top-1/2 -translate-y-1/2 h-12 w-12 bg-white/30 backdrop-blur-md text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all hover:bg-white/50"
-                    >
-                      <ChevronRight size={24} />
-                    </button>
-                  </>
-                )}
+                  </div>
 
-                <div className="absolute bottom-8 left-10 text-white text-left">
-                  <p className="text-3xl font-pacifico">Cherishing every moment...</p>
+                  {/* Indicators */}
+                  <div className="mt-12 flex justify-center gap-3">
+                    {uploadedImages.map((_: any, i: number) => (
+                      <button
+                        key={i}
+                        onClick={() => setCarouselIndex(i)}
+                        className={`h-2 rounded-full transition-all duration-500 ${i === carouselIndex ? 'bg-rose-500 w-10' : 'bg-rose-200 w-2 hover:bg-rose-300'
+                          }`}
+                      />
+                    ))}
+                  </div>
                 </div>
-              </div>
-
-              {/* Music Player Indicator */}
-              <div className="mt-12 flex items-center justify-center gap-6">
-                <div className="bg-white/80 backdrop-blur-md px-8 py-4 rounded-full shadow-xl flex items-center gap-4 border border-rose-50">
-                  <div className="h-3 w-3 rounded-full bg-rose-500 animate-pulse"></div>
-                  <span className="text-sm font-bold text-slate-600 tracking-tight">Playing: {inv.recipientName}'s Favorite Song.mp3</span>
-                  <Music size={18} className="text-rose-400 animate-spin-slow" />
-                </div>
-                <button
-                  onClick={() => {
-                    if (audioRef.current?.paused) audioRef.current.play();
-                    else audioRef.current?.pause();
-                  }}
-                  className="h-14 w-14 bg-rose-50 text-rose-500 rounded-full flex items-center justify-center hover:bg-rose-100 transition-all border-2 border-white shadow-lg"
-                >
-                  <Play fill="currentColor" size={24} />
-                </button>
-              </div>
-
-              {/* Indicators */}
-              <div className="mt-12 flex justify-center gap-3">
-                {inv.images.slice(2).map((_, i) => (
-                  <button
-                    key={i}
-                    onClick={() => setCarouselIndex(i)}
-                    className={`h-2 rounded-full transition-all duration-500 ${i === carouselIndex ? 'bg-rose-500 w-10' : 'bg-rose-200 w-2 hover:bg-rose-300'
-                      }`}
-                  />
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="text-slate-400 italic">Add more photos to see our story...</div>
-          )}
-        </div>
-      )}
-    </div>
+              );
+            })()}
+          </div>
+        )
+      }
+    </div >
   );
 };
 
